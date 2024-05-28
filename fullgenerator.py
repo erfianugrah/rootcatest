@@ -57,13 +57,14 @@ def write_base64_to_file(base64_data, output_path):
     print(f"Base64-encoded DER content written to {output_path}:\n{base64_data}\n")
 
 def main(domain, country, state, locality, organization, organizational_unit, days):
-    # Extract the subdomain from the full domain name
     subdomain = domain.split('.')[0]
 
     root_key = f'{subdomain}_rootCA.key'
     root_cert = f'{subdomain}_rootCA.pem'
     leaf_key = f'{subdomain}_leaf.key'
     leaf_cert = f'{subdomain}_leaf.pem'
+    leaf_der_path = leaf_cert.replace('.pem', '.der')
+    root_der_path = root_cert.replace('.pem', '.der')
     
     openssl_cnf_content = generate_openssl_cnf(domain, country, state, locality, organization, organizational_unit)
     v3_ext_content = generate_v3_ext(domain)
@@ -83,8 +84,12 @@ def main(domain, country, state, locality, organization, organizational_unit, da
         subprocess.call(['openssl', 'req', '-new', '-key', leaf_key, '-out', f'{subdomain}_leaf.csr', '-config', openssl_cnf_path])
         subprocess.call(['openssl', 'x509', '-req', '-in', f'{subdomain}_leaf.csr', '-CA', root_cert, '-CAkey', root_key, '-CAcreateserial', '-out', leaf_cert, '-days', str(days), '-sha256', '-extfile', v3_ext_path])
 
-        leaf_der_path = leaf_cert.replace('.pem', '.der')
-        root_der_path = root_cert.replace('.pem', '.der')
+        # Generate PKCS#12 file
+        p12_password = "yourPKCS12Password"  # Set your desired password here
+        p12_file_path = f'{subdomain}_certs.p12'
+        subprocess.call(['openssl', 'pkcs12', '-export', '-out', p12_file_path, '-inkey', leaf_key, '-in', leaf_cert, '-password', f'pass:{p12_password}'])
+
+        print(f"PKCS#12 file generated: {p12_file_path}")
 
         leaf_base64 = convert_pem_to_der_and_base64_encode(leaf_cert, leaf_der_path)
         root_base64 = convert_pem_to_der_and_base64_encode(root_cert, root_der_path)
@@ -97,6 +102,8 @@ def main(domain, country, state, locality, organization, organizational_unit, da
 
         print(f"Leaf Certificate Base64 DER written to {leaf_base64_file}")
         print(f"Root CA Certificate Base64 DER written to {root_base64_file}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
     finally:
         os.remove(openssl_cnf_path)
         os.remove(v3_ext_path)
